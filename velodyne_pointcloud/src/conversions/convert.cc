@@ -14,7 +14,7 @@
 */
 
 #include "velodyne_pointcloud/convert.h"
-
+#include <velodyne_driver/time_conversion.hpp>
 #include <pcl_conversions/pcl_conversions.h>
 
 namespace velodyne_pointcloud
@@ -25,10 +25,19 @@ namespace velodyne_pointcloud
   {
     data_->setup(private_nh);
 
+    private_nh.param<bool>("pub_sync_time_topic",pub_sync_time_topic_,true);
+    private_nh.param<bool>("pub_ros_time_topic",pub_ros_time_topic_,true);
+
 
     // advertise output point cloud (before subscribing to input data)
-    output_ =
-      node.advertise<sensor_msgs::PointCloud2>("velodyne_points", 10);
+    if(pub_sync_time_topic_ == true)
+    {
+      output_sync = node.advertise<sensor_msgs::PointCloud2>("velodyne_points_sync", 10);
+    }
+    if(pub_ros_time_topic_ == true)
+    {
+      output_ros = node.advertise<sensor_msgs::PointCloud2>("velodyne_points", 10);
+    }
 
     srv_ = boost::make_shared <dynamic_reconfigure::Server<velodyne_pointcloud::
       CloudNodeConfig> > (private_nh);
@@ -68,28 +77,47 @@ namespace velodyne_pointcloud
   /** @brief Callback for raw scan messages. */
   void Convert::processScan(const velodyne_msgs::VelodyneScan::ConstPtr &scanMsg)
   {
-    if (output_.getNumSubscribers() == 0)         // no one listening?
+    if ((output_ros.getNumSubscribers() == 0) && (output_sync.getNumSubscribers() == 0))         // no one listening?
       return;                                     // avoid much work
 
     // allocate a point cloud with same time and frame ID as raw data
-    PointcloudXYZIR outMsg;
-    // outMsg's header is a pcl::PCLHeader, convert it before stamp assignment
-    outMsg.pc->header.stamp = pcl_conversions::toPCL(scanMsg->header).stamp;
-    outMsg.pc->header.frame_id = scanMsg->header.frame_id;
-    outMsg.pc->height = 1;
+    PointcloudXYZIR outMsgRos, outMsgSync;
+    // outMsgRos's header is a pcl::PCLHeader, convert it before stamp assignment
+    outMsgRos.pc->header.stamp = pcl_conversions::toPCL(scanMsg->header).stamp;
 
-    outMsg.pc->points.reserve(scanMsg->packets.size() * data_->scansPerPacket());
+    outMsgSync.pc->header.stamp = pcl_conversions::toPCL(rosTimeFromGpsTimestamp(&(scanMsg->packets.back().data[1200])));
+
+    outMsgSync.pc->header.frame_id = outMsgRos.pc->header.frame_id = scanMsg->header.frame_id;
+    outMsgSync.pc->height = outMsgRos.pc->height = 1;
+
+    outMsgRos.pc->points.reserve(scanMsg->packets.size() * data_->scansPerPacket());
+    outMsgSync.pc->points.reserve(scanMsg->packets.size() * data_->scansPerPacket());
 
     // process each packet provided by the driver
     for (size_t i = 0; i < scanMsg->packets.size(); ++i)
     {
-      data_->unpack(scanMsg->packets[i], outMsg);
+      data_->unpack(scanMsg->packets[i], outMsgRos);
+      data_->unpack(scanMsg->packets[i], outMsgSync);
     }
 
     // publish the accumulated cloud message
-    ROS_DEBUG_STREAM("Publishing " << outMsg.pc->height * outMsg.pc->width
-                     << " Velodyne points, time: " << outMsg.pc->header.stamp);
-    output_.publish(outMsg.pc);
+    if(pub_ros_time_topic_ == true)
+    {
+      ROS_DEBUG_STREAM("Publishing " << outMsgRos.pc->height * outMsgRos.pc->width
+                     << " Velodyne points, time: " << outMsgRos.pc->header.stamp);
+      output_ros.publish(outMsgRos.pc);
+    }
+
+    if(pub_sync_time_topic_ == true)
+    {
+      ROS_DEBUG_STREAM("Publishing " << outMsgSync.pc->height * outMsgSync.pc->width
+                     << " Velodyne points, synctime: " << outMsgSync.pc->header.stamp);
+      output_sync.publish(outMsgSync.pc);
+    }
+
+    //ROS_ERROR("time sync before ros: %f", scanMsg->header.stamp.toSec()- rosTimeFromGpsTimestamp(&(scanMsg->packets.back().data[1200])).toSec());
+
+
     diag_topic_->tick(scanMsg->header.stamp);
     diagnostics_.update();
   }

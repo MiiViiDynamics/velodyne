@@ -70,7 +70,10 @@ private:
 
   boost::shared_ptr<velodyne_rawdata::RawData> data_;
   ros::Subscriber velodyne_scan_;
-  ros::Publisher output_;
+  ros::Publisher output_ros, output_sync;
+
+  bool pub_sync_time_topic_;
+  bool pub_ros_time_topic_;
 
   /// configuration parameters
   typedef struct

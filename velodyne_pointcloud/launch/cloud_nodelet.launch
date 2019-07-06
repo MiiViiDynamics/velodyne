@@ -6,11 +6,15 @@
   <arg name="manager" default="velodyne_nodelet_manager" />
   <arg name="max_range" default="130.0" />
   <arg name="min_range" default="0.9" />
+  <arg name="pub_sync_time_topic" default="true" />
+  <arg name="pub_ros_time_topic" default="false" />
 
   <node pkg="nodelet" type="nodelet" name="$(arg manager)_cloud"
         args="load velodyne_pointcloud/CloudNodelet $(arg manager)">
     <param name="calibration" value="$(arg calibration)"/>
     <param name="max_range" value="$(arg max_range)"/>
     <param name="min_range" value="$(arg min_range)"/>
+    <param name="pub_sync_time_topic" value="$(arg pub_sync_time_topic)"/>
+    <param name="pub_ros_time_topic" value="$(arg pub_ros_time_topic)"/>
   </node>
 </launch>
